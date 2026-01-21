@@ -227,23 +227,14 @@ def patch_initrd_xz(initrd_xz:bytes,key_dict:dict,ljust=True):
         if old_public_key in new_initrd:
             print(f'initrd public key patched {old_public_key[:16].hex().upper()}...')
             new_initrd = new_initrd.replace(old_public_key,new_public_key)
-    preset = 6
-    new_initrd_xz = lzma.compress(new_initrd,check=lzma.CHECK_CRC32,filters=[{"id": lzma.FILTER_LZMA2, "preset": preset }] )
-    while len(new_initrd_xz) > len(initrd_xz) and preset < 9:
-        print(f'preset:{preset}')
-        print(f'new initrd xz size:{len(new_initrd_xz)}')
-        print(f'old initrd xz size:{len(initrd_xz)}')
-        preset += 1
-        new_initrd_xz = lzma.compress(new_initrd,check=lzma.CHECK_CRC32,filters=[{"id": lzma.FILTER_LZMA2, "preset": preset }] )
-    if len(new_initrd_xz) > len(initrd_xz):
-        new_initrd_xz = lzma.compress(new_initrd,check=lzma.CHECK_CRC32,filters=[{"id": lzma.FILTER_LZMA2, "preset": 9 | lzma.PRESET_EXTREME,'dict_size': 32*1024*1024,"lc": 4,"lp": 0, "pb": 0,}] )
-    if ljust:
-        # print(f'preset:{preset}')
-        # print(f'new initrd xz size:{len(new_initrd_xz)}')
-        # print(f'old initrd xz size:{len(initrd_xz)}')
-        # print(f'ljust size:{len(initrd_xz)-len(new_initrd_xz)}')
-        assert len(new_initrd_xz) <= len(initrd_xz),'new initrd xz size is too big'
-        new_initrd_xz = new_initrd_xz.ljust(len(initrd_xz),b'\0')
+            
+    # Use safe compression (Stream format, no size header)
+    new_initrd_xz = compress_xz(new_initrd)
+    
+    # We do NOT pad (ljust). Padded XZ can cause decompression failures in some kernels/loaders.
+    # The caller (patch_pe) checks size constraints if necessary.
+    # For file-based initrd, size change is fine.
+    
     return new_initrd_xz
 
 def patch_elf(data: bytes, key_dict: dict):
