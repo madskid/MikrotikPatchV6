@@ -205,25 +205,54 @@ jobs:
                sudo cp "$SYSTEM_IMAGE" ./system_to_patch.npk
                sudo -E python3 patch.py npk ./system_to_patch.npk
                
-               echo "Extracting Kernel/Initrd from patched system NPK..."
-               # Create /boot directory on the partition
-               sudo mkdir -p ./chr_boot/boot
-               # Extract files to ./chr_boot/boot/
-               sudo -E python3 extract_kernel.py ./system_to_patch.npk ./chr_boot/boot
+               # 1. Patch Kernel/Initrd directly on Boot Partition (Preserves CHR-specific drivers)
+               echo "Patching Kernel/Initrd on Boot Partition..."
                
-               # Verify extraction
-               if [ ! -f "./chr_boot/boot/kernel" ] || [ ! -f "./chr_boot/boot/initrd.rgz" ]; then
-                   echo "Error: Kernel or Initrd extraction failed!"
+               # Find existing kernel/initrd
+               KERNEL_FILE=""
+               for f in "vmlinuz" "kernel" "boot/vmlinuz" "boot/kernel"; do
+                   if [ -f "./chr_boot/$f" ]; then
+                       KERNEL_FILE="./chr_boot/$f"
+                       break
+                   fi
+               done
+               
+               INITRD_FILE=""
+               for f in "initrd.rgz" "boot/initrd.rgz"; do
+                   if [ -f "./chr_boot/$f" ]; then
+                       INITRD_FILE="./chr_boot/$f"
+                       break
+                   fi
+               done
+               
+               if [ -n "$KERNEL_FILE" ]; then
+                   echo "Found kernel at $KERNEL_FILE. Patching..."
+                   sudo -E python3 patch.py kernel "$KERNEL_FILE"
+               else
+                   echo "Error: No kernel file found on boot partition!"
                    ls -R ./chr_boot
                    exit 1
                fi
-               
+
+               if [ -n "$INITRD_FILE" ]; then
+                   echo "Found initrd at $INITRD_FILE. Patching..."
+                   sudo -E python3 patch.py kernel "$INITRD_FILE"
+               else
+                   echo "Error: No initrd file found on boot partition!"
+                   ls -R ./chr_boot
+                   exit 1
+               fi
+
                echo "Installing Syslinux..."
                sudo mkdir -p chr_boot/BOOT
                sudo extlinux --install -H 64 -S 32 chr_boot/BOOT
                
-               # Update syslinux config to point to /boot/kernel
-               echo -e "default system\nlabel system\n\tkernel /boot/kernel\n\tinitrd /boot/initrd.rgz\n\tappend load_ramdisk=1 root=/dev/ram0 quiet" | sudo tee syslinux.cfg > /dev/null
+               # Get relative paths for syslinux (stripped of ./chr_boot)
+               REL_KERNEL=${KERNEL_FILE#./chr_boot}
+               REL_INITRD=${INITRD_FILE#./chr_boot}
+               
+               # Update syslinux config
+               echo -e "default system\nlabel system\n\tkernel $REL_KERNEL\n\tinitrd $REL_INITRD\n\tappend load_ramdisk=1 root=/dev/ram0 quiet" | sudo tee syslinux.cfg > /dev/null
                sudo cp syslinux.cfg chr_boot/BOOT/
                
                # 2. Patch all other packages in Data Partition
