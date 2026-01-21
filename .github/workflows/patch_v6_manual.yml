@@ -101,6 +101,100 @@ jobs:
           echo "ISO Patching Complete."
           ls -lh "mikrotik-$VERSION-patched.iso"
 
+      - name: Patch CHR
+        run: |
+          VERSION="${{ inputs.routeros_version }}"
+          echo "Downloading CHR version $VERSION..."
+          curl -s -o chr.img.zip "https://download.mikrotik.com/routeros/$VERSION/chr-$VERSION.img.zip"
+          curl -s -L -o refind.zip "https://sourceforge.net/projects/refind/files/0.14.2/refind-bin-0.14.2.zip/download"
+          
+          if [ ! -s chr.img.zip ]; then
+            echo "Error: Failed to download CHR."
+            exit 1
+          fi
+          
+          unzip chr.img.zip
+          unzip -q refind.zip refind-bin-0.14.2/refind/refind_x64.efi
+          mv refind-bin-0.14.2/refind/refind_x64.efi BOOTX64.EFI
+          
+          IMG_FILE="chr-$VERSION.img"
+          
+          # Load NBD module (try/catch in case it's built-in or fails)
+          sudo modprobe nbd max_part=8 || true
+          
+          # Connect image
+          sudo qemu-nbd -c /dev/nbd0 -f raw "$IMG_FILE"
+          sleep 2
+          
+          mkdir -p mnt_boot mnt_ros
+          
+          # Check partitions
+          if [ ! -b /dev/nbd0p1 ]; then
+             echo "Error: Partitions not found on /dev/nbd0"
+             # Fallback debug
+             ls -l /dev/nbd*
+             exit 1
+          fi
+          
+          sudo mount /dev/nbd0p1 mnt_boot/
+          sudo mount /dev/nbd0p2 mnt_ros/
+          
+          # 1. Install Bootloader (ReFind)
+          echo "Installing ReFind..."
+          sudo mkdir -p mnt_boot/EFI/BOOT
+          sudo cp BOOTX64.EFI mnt_boot/EFI/BOOT/BOOTX64.EFI
+          
+          # 2. Install Syslinux Config
+          echo "Configuring Syslinux..."
+          sudo extlinux --install -H 64 -S 32 mnt_boot/BOOT
+          echo -e "default system\nlabel system\n\tkernel /EFI/BOOT/BOOTX64.EFI\n\tappend load_ramdisk=1 root=/dev/ram0 quiet" | sudo tee syslinux.cfg > /dev/null
+          sudo cp syslinux.cfg mnt_boot/BOOT/
+          
+          # 3. Patch Kernel (initrd) in Boot Partition
+          # Usually at /boot/initrd.rgz or /initrd.rgz relative to partition root
+          if [ -f "mnt_boot/boot/initrd.rgz" ]; then
+             TARGET_INITRD="mnt_boot/boot/initrd.rgz"
+          else
+             TARGET_INITRD="mnt_boot/initrd.rgz"
+          fi
+          
+          if [ -f "$TARGET_INITRD" ]; then
+             echo "Patching CHR Kernel ($TARGET_INITRD)..."
+             sudo -E python3 patch.py kernel "$TARGET_INITRD"
+          else
+             echo "Warning: initrd.rgz not found in CHR boot partition!"
+          fi
+          
+          # 4. Patch Packages (RouterOS)
+          # In CHR, the system package image is often at var/pdb/system/image
+          # We can also just patch the .npk if we downloaded it separately, but here we patch in-place.
+          
+          echo "Patching CHR Packages..."
+          # Find 'image' files in pdb (Package Database)
+          PDB_IMAGES=$(find mnt_ros/var/pdb -name "image")
+          for file in $PDB_IMAGES; do
+             echo "Processing CHR package: $file"
+             sudo -E python3 patch.py npk "$file"
+          done
+          
+          # Also check standard locations if any
+          NPK_FILES=$(find mnt_ros/ -name "*.npk")
+          for file in $NPK_FILES; do
+             echo "Processing $file..."
+             sudo -E python3 patch.py npk "$file"
+          done
+          
+          sudo umount mnt_boot
+          sudo umount mnt_ros
+          sudo qemu-nbd -d /dev/nbd0
+          rm -rf mnt_boot mnt_ros
+          
+          # Zip result
+          zip "chr-$VERSION-patched.img.zip" "$IMG_FILE"
+          
+          echo "CHR Patching Complete."
+          ls -lh "chr-$VERSION-patched.img.zip"
+
       - name: Create Release
         if: ${{ inputs.publish_release == true }}
         uses: softprops/action-gh-release@v2
@@ -110,8 +204,13 @@ jobs:
           body: |
             Patched RouterOS ${{ inputs.routeros_version }} for x86.
             
+            **Artifacts:**
+            - **ISO:** CD/DVD Installation
+            - **CHR:** Cloud Hosted Router Image (ReFind Bootloader)
+            
             **Keys used:**
             - Public Key (Check): `C275...`
             - Signing Algorithm: SHA1 (Legacy)
           files: |
             mikrotik-${{ inputs.routeros_version }}-patched.iso
+            chr-${{ inputs.routeros_version }}-patched.img.zip
