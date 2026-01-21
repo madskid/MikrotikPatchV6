@@ -206,12 +206,24 @@ jobs:
                sudo -E python3 patch.py npk ./system_to_patch.npk
                
                echo "Extracting Kernel/Initrd from patched system NPK..."
-               sudo -E python3 extract_kernel.py ./system_to_patch.npk ./chr_boot
+               # Create /boot directory on the partition
+               sudo mkdir -p ./chr_boot/boot
+               # Extract files to ./chr_boot/boot/
+               sudo -E python3 extract_kernel.py ./system_to_patch.npk ./chr_boot/boot
+               
+               # Verify extraction
+               if [ ! -f "./chr_boot/boot/kernel" ] || [ ! -f "./chr_boot/boot/initrd.rgz" ]; then
+                   echo "Error: Kernel or Initrd extraction failed!"
+                   ls -R ./chr_boot
+                   exit 1
+               fi
                
                echo "Installing Syslinux..."
                sudo mkdir -p chr_boot/BOOT
                sudo extlinux --install -H 64 -S 32 chr_boot/BOOT
-               echo -e "default system\nlabel system\n\tkernel /kernel\n\tinitrd /initrd.rgz\n\tappend load_ramdisk=1 root=/dev/ram0 quiet" | sudo tee syslinux.cfg > /dev/null
+               
+               # Update syslinux config to point to /boot/kernel
+               echo -e "default system\nlabel system\n\tkernel /boot/kernel\n\tinitrd /boot/initrd.rgz\n\tappend load_ramdisk=1 root=/dev/ram0 quiet" | sudo tee syslinux.cfg > /dev/null
                sudo cp syslinux.cfg chr_boot/BOOT/
                
                # 2. Patch all other packages in Data Partition
