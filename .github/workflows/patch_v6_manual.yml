@@ -134,35 +134,52 @@ jobs:
           sudo mount /dev/nbd0p1 mnt_boot/
           sudo mount /dev/nbd0p2 mnt_ros/
           
-          # 1. Patch Kernel (EFI/BOOT/BOOTX64.EFI) in Boot Partition
-          # In CHR, BOOTX64.EFI is the Linux Kernel (EFISTUB)
-          if [ -f "mnt_boot/EFI/BOOT/BOOTX64.EFI" ]; then
-             echo "Patching CHR Kernel (BOOTX64.EFI)..."
-             sudo -E python3 patch.py kernel "mnt_boot/EFI/BOOT/BOOTX64.EFI"
-          else
-             echo "Warning: BOOTX64.EFI not found! Kernel patching might fail."
+          # 1. Find and Patch Kernel & Initrd
+          echo "Inspecting boot partition..."
+          ls -R mnt_boot/
+          
+          KERNEL_FILE=""
+          # Priority list for kernel files
+          for candidate in "EFI/BOOT/BOOTX64.EFI" "boot/kernel" "kernel" "linux" "vmlinuz"; do
+             if [ -f "mnt_boot/$candidate" ]; then
+                KERNEL_FILE="$candidate"
+                break
+             fi
+          done
+          
+          if [ -z "$KERNEL_FILE" ]; then
+             echo "Error: Could not find kernel file in mnt_boot!"
+             exit 1
           fi
+          
+          echo "Found Kernel: $KERNEL_FILE"
+          echo "Patching Kernel..."
+          sudo -E python3 patch.py kernel "mnt_boot/$KERNEL_FILE"
 
-          # 2. Patch Initrd
+          INITRD_FILE=""
           if [ -f "mnt_boot/boot/initrd.rgz" ]; then
-             TARGET_INITRD="mnt_boot/boot/initrd.rgz"
-          else
-             TARGET_INITRD="mnt_boot/initrd.rgz"
+             INITRD_FILE="boot/initrd.rgz"
+          elif [ -f "mnt_boot/initrd.rgz" ]; then
+             INITRD_FILE="initrd.rgz"
           fi
           
-          if [ -f "$TARGET_INITRD" ]; then
-             echo "Patching CHR Initrd ($TARGET_INITRD)..."
-             sudo -E python3 patch.py kernel "$TARGET_INITRD"
+          if [ -n "$INITRD_FILE" ]; then
+             echo "Found Initrd: $INITRD_FILE"
+             echo "Patching Initrd..."
+             sudo -E python3 patch.py kernel "mnt_boot/$INITRD_FILE"
+             INITRD_PARAM="initrd=/$INITRD_FILE"
           else
-             echo "Warning: initrd.rgz not found in CHR boot partition!"
+             echo "Warning: No separate initrd found (might be embedded)."
+             INITRD_PARAM=""
           fi
           
-          # 3. Install Syslinux (Legacy Bootloader)
-          # We point Syslinux to the patched BOOTX64.EFI kernel
+          # 2. Install Syslinux (Legacy Bootloader)
           echo "Configuring Syslinux..."
           sudo mkdir -p mnt_boot/BOOT
           sudo extlinux --install -H 64 -S 32 mnt_boot/BOOT
-          echo -e "default system\nlabel system\n\tkernel /EFI/BOOT/BOOTX64.EFI\n\tappend load_ramdisk=1 root=/dev/ram0 quiet" | sudo tee syslinux.cfg > /dev/null
+          
+          # Note: Paths in syslinux.cfg are relative to partition root, usually starting with /
+          echo -e "default system\nlabel system\n\tkernel /$KERNEL_FILE\n\tappend load_ramdisk=1 root=/dev/ram0 quiet $INITRD_PARAM" | sudo tee syslinux.cfg > /dev/null
           sudo cp syslinux.cfg mnt_boot/BOOT/
           
           # 4. Patch Packages (RouterOS)
