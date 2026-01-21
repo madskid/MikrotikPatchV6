@@ -182,7 +182,19 @@ jobs:
             sudo mount /dev/nbd1p2 chr_ros/
             
             # Find system package in CHR
-            SYSTEM_IMAGE=$(sudo find chr_ros/var/pdb -name "image" | xargs grep -l "system" || true)
+            SYSTEM_IMAGE_CANDIDATES=$(sudo find chr_ros/var/pdb -name "image" | xargs grep -l "system" || true)
+            SYSTEM_IMAGE=""
+            for candidate in $SYSTEM_IMAGE_CANDIDATES; do
+                if [[ "$candidate" == *"routeros-x86"* ]]; then
+                    SYSTEM_IMAGE="$candidate"
+                    break
+                fi
+            done
+            # Fallback if no specific x86 package found, take the first one
+            if [ -z "$SYSTEM_IMAGE" ]; then
+                 SYSTEM_IMAGE=$(echo "$SYSTEM_IMAGE_CANDIDATES" | head -n 1)
+            fi
+
             if [ -z "$SYSTEM_IMAGE" ]; then
                # Try finding any npk
                SYSTEM_IMAGE=$(sudo find chr_ros/ -name "system-*.npk" | head -n 1)

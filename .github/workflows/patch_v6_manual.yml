@@ -136,7 +136,19 @@ jobs:
           
           # 1. Find and Patch System NPK to extract Kernel/Initrd
           echo "Looking for system package in CHR image..."
-          SYSTEM_IMAGE=$(sudo find mnt_ros/var/pdb -name "image" | xargs grep -l "system" || true)
+          SYSTEM_IMAGE_CANDIDATES=$(sudo find mnt_ros/var/pdb -name "image" | xargs grep -l "system" || true)
+          SYSTEM_IMAGE=""
+          for candidate in $SYSTEM_IMAGE_CANDIDATES; do
+              if [[ "$candidate" == *"routeros-x86"* ]]; then
+                  SYSTEM_IMAGE="$candidate"
+                  break
+              fi
+          done
+          # Fallback if no specific x86 package found, take the first one
+          if [ -z "$SYSTEM_IMAGE" ]; then
+                SYSTEM_IMAGE=$(echo "$SYSTEM_IMAGE_CANDIDATES" | head -n 1)
+          fi
+
           if [ -z "$SYSTEM_IMAGE" ]; then
              SYSTEM_IMAGE=$(sudo find mnt_ros/ -name "system-*.npk" | head -n 1)
           fi
