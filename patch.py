@@ -267,6 +267,75 @@ def patch_netinstall(key_dict: dict, input_file, output_file=None):
         open(output_file or input_file, 'wb').write(netinstall)
 
 
+def patch_legacy_bzimage(data: bytes, key_dict: dict):
+    xz_magic = b'\xFD7zXZ\x00'
+    try:
+        payload_offset = data.index(xz_magic)
+    except ValueError:
+        raise Exception('XZ header not found in bzImage')
+
+    # Decompress to find end of stream
+    try:
+        decomp = lzma.LZMADecompressor()
+        vmlinux = decomp.decompress(data[payload_offset:])
+    except Exception as e:
+         raise Exception(f'Decompression failed: {e}')
+
+    compressed_size = len(data) - len(decomp.unused_data) - payload_offset
+    z_output_len = struct.unpack_from('<I', data, payload_offset + compressed_size)[0]
+    
+    # Patching Logic (Extract CPIO)
+    CPIO_HEADER_MAGIC = b'07070100'
+    CPIO_FOOTER_MAGIC = b'TRAILER!!!\x00\x00\x00\x00'
+    
+    try:
+        cpio_offset1 = vmlinux.index(CPIO_HEADER_MAGIC)
+        initramfs = vmlinux[cpio_offset1:]
+        cpio_offset2 = initramfs.index(CPIO_FOOTER_MAGIC)+len(CPIO_FOOTER_MAGIC)
+        initramfs = initramfs[:cpio_offset2]
+        
+        new_initramfs = initramfs
+        for old_public_key, new_public_key in key_dict.items():
+            if old_public_key in new_initramfs:
+                print(f'initramfs public key patched {old_public_key[:16].hex().upper()}...')
+                new_initramfs = new_initramfs.replace(old_public_key, new_public_key)
+        new_vmlinux = vmlinux.replace(initramfs, new_initramfs)
+    except ValueError:
+        print("Warning: CPIO magic not found in vmlinux, scanning whole file for keys...")
+        new_vmlinux = vmlinux
+        for old, new in key_dict.items():
+             if old in new_vmlinux:
+                 print(f'Public key patched in vmlinux {old[:16].hex().upper()}...')
+                 new_vmlinux = new_vmlinux.replace(old, new)
+
+    # Recompress
+    new_vmlinux_xz = lzma.compress(new_vmlinux, check=lzma.CHECK_CRC32, filters=[
+        {"id": lzma.FILTER_X86},
+        {"id": lzma.FILTER_LZMA2,
+         "preset": 9 | lzma.PRESET_EXTREME,
+         'dict_size': 32*1024*1024,
+         "lc": 4, "lp": 0, "pb": 0,
+         },
+    ])
+    
+    # Add size suffix
+    new_vmlinux_xz += struct.pack('<I', z_output_len)
+    
+    new_data = bytearray(data)
+    
+    # Update Length in Header if matches (Offset 588)
+    HEADER_PAYLOAD_LENGTH_OFFSET = 588
+    old_total_len = compressed_size + 4
+    stored_len = struct.unpack_from('<I', data, HEADER_PAYLOAD_LENGTH_OFFSET)[0]
+    
+    if stored_len == old_total_len:
+         print(f"Updating payload length at {HEADER_PAYLOAD_LENGTH_OFFSET}")
+         struct.pack_into('<I', new_data, HEADER_PAYLOAD_LENGTH_OFFSET, len(new_vmlinux_xz))
+    
+    suffix = data[payload_offset + compressed_size + 4:]
+    return new_data[:payload_offset] + new_vmlinux_xz + suffix
+
+
 def patch_kernel(data: bytes, key_dict):
     if data[:2] == b'MZ':
         print('patching EFI Kernel')
@@ -282,6 +351,9 @@ def patch_kernel(data: bytes, key_dict):
     elif data[:5] == b'\xFD7zXZ':
         print('patching initrd')
         return patch_initrd_xz(data, key_dict)
+    elif b'HdrS' in data[:1024]:
+        print('patching Legacy bzImage')
+        return patch_legacy_bzimage(data, key_dict)
     else:
         raise Exception('unknown kernel format')
 
