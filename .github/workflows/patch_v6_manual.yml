@@ -180,7 +180,8 @@ jobs:
           sudo extlinux --install -H 64 -S 32 mnt_boot/BOOT
           
           # Note: Paths in syslinux.cfg are relative to partition root, usually starting with /
-          echo -e "default system\nlabel system\n\tkernel /$KERNEL_FILE\n\tappend load_ramdisk=1 root=/dev/ram0 quiet $INITRD_PARAM" | sudo tee syslinux.cfg > /dev/null
+          # CHR usually boots with root=/dev/sda2 (System Partition)
+          echo -e "default system\nlabel system\n\tkernel /$KERNEL_FILE\n\tappend root=/dev/sda2 rw quiet $INITRD_PARAM" | sudo tee syslinux.cfg > /dev/null
           sudo cp syslinux.cfg mnt_boot/BOOT/
           
           # 4. Patch Packages (RouterOS)
