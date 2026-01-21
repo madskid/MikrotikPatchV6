@@ -75,6 +75,19 @@ def patch_bzimage(data: bytes, key_dict: dict):
     # Removing ljust padding to ensure size field is at the end
     # new_vmlinux_xz = new_vmlinux_xz.ljust(len(vmlinux_xz), b'\0')
     new_data = new_data.replace(vmlinux_xz, new_vmlinux_xz)
+    
+    # Update syssize (Offset 0x1F4) for bootloaders (Syslinux/GRUB)
+    setup_sects = new_data[0x1F1]
+    if setup_sects == 0:
+        setup_sects = 4
+    setup_size = (setup_sects + 1) * 512
+    total_size = len(new_data)
+    protected_mode_size = total_size - setup_size
+    syssize = (protected_mode_size + 15) // 16
+    
+    print(f"Updating syssize at 0x1F4: {syssize} paragraphs ({protected_mode_size} bytes)")
+    struct.pack_into('<I', new_data, 0x1F4, syssize)
+    
     return new_data
     assert new_payload_length <= payload_length, 'new vmlinux.xz size is too big'
     # last 4 bytes is uncompressed size(z_output_len)
@@ -87,6 +100,19 @@ def patch_bzimage(data: bytes, key_dict: dict):
     # Removing ljust padding to ensure size field is at the end
     # new_vmlinux_xz = new_vmlinux_xz.ljust(len(vmlinux_xz), b'\0')
     new_data = new_data.replace(vmlinux_xz, new_vmlinux_xz)
+    
+    # Update syssize (Offset 0x1F4) for bootloaders (Syslinux/GRUB)
+    setup_sects = new_data[0x1F1]
+    if setup_sects == 0:
+        setup_sects = 4
+    setup_size = (setup_sects + 1) * 512
+    total_size = len(new_data)
+    protected_mode_size = total_size - setup_size
+    syssize = (protected_mode_size + 15) // 16
+    
+    print(f"Updating syssize at 0x1F4: {syssize} paragraphs ({protected_mode_size} bytes)")
+    struct.pack_into('<I', new_data, 0x1F4, syssize)
+    
     return new_data
 
 
