@@ -31,18 +31,26 @@ def extract_kernel(npk_path, output_dir):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
+    print("Files in NPK container:")
     for item in container:
         name = item.name.decode()
-        if name == 'boot/kernel':
-            print(f"Extracting {name}...")
-            with open(os.path.join(output_dir, 'kernel'), 'wb') as f:
-                f.write(item.data)
-            found_kernel = True
-        elif name == 'boot/initrd.rgz':
-            print(f"Extracting {name}...")
-            with open(os.path.join(output_dir, 'initrd.rgz'), 'wb') as f:
-                f.write(item.data)
-            found_initrd = True
+        print(f" - {name}")
+        
+        # Kernel logic
+        if not found_kernel:
+            if name in ['boot/kernel', 'boot/vmlinuz', 'vmlinuz', 'kernel']:
+                print(f"Found kernel: {name} -> extracting to kernel")
+                with open(os.path.join(output_dir, 'kernel'), 'wb') as f:
+                    f.write(item.data)
+                found_kernel = True
+        
+        # Initrd logic
+        if not found_initrd:
+            if name in ['boot/initrd.rgz', 'initrd.rgz']:
+                print(f"Found initrd: {name} -> extracting to initrd.rgz")
+                with open(os.path.join(output_dir, 'initrd.rgz'), 'wb') as f:
+                    f.write(item.data)
+                found_initrd = True
     
     if found_kernel and found_initrd:
         print("Extraction successful.")
