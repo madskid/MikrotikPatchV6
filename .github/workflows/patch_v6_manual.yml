@@ -204,8 +204,9 @@ jobs:
              REL_INITRD=${INITRD_FILE#./mnt_boot}
              
              # Update syslinux config
-             # Added console=tty0 console=ttyS0,115200 for debugging "stuck" boot
-             echo -e "default system\nlabel system\n\tkernel $REL_KERNEL\n\tinitrd $REL_INITRD\n\tappend load_ramdisk=1 root=/dev/ram0 console=tty0 console=ttyS0,115200" | sudo tee syslinux.cfg > /dev/null
+             # Changed root=/dev/ram0 to root=/dev/sda2 for standard CHR boot.
+             # Added rootwait to ensure disk is ready.
+             echo -e "default system\nlabel system\n\tkernel $REL_KERNEL\n\tinitrd $REL_INITRD\n\tappend root=/dev/sda2 rootwait console=tty0 console=ttyS0,115200" | sudo tee syslinux.cfg > /dev/null
              sudo cp syslinux.cfg mnt_boot/BOOT/
              
              # 2. Patch all other packages (RouterOS)
