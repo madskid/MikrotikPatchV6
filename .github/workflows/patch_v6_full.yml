@@ -209,10 +209,11 @@ jobs:
                echo "Patching Kernel/Initrd on Boot Partition..."
                
                # Find existing kernel/initrd
-               # Reverting priority to vmlinuz (32-bit) because it booted successfully in previous tests (unlike 64-bit which bootloops).
-               # The "No Disk" error on 32-bit was likely due to wrong root= param (ram0 vs sda2), which is now fixed.
+               # Reverting to vmlinuz-64. 32-bit hangs. 
+               # We fixed syssize/compression, and removed earlyprintk (which caused bootloop on 64-bit).
+               # So 64-bit should be stable now.
                KERNEL_FILE=""
-               for f in "vmlinuz" "kernel" "boot/vmlinuz" "boot/kernel" "vmlinuz-64" "boot/vmlinuz-64"; do
+               for f in "vmlinuz-64" "boot/vmlinuz-64" "vmlinuz" "kernel" "boot/vmlinuz" "boot/kernel"; do
                    if [ -f "./chr_boot/$f" ]; then
                        KERNEL_FILE="./chr_boot/$f"
                        break
