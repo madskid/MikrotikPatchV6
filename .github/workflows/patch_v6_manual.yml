@@ -136,7 +136,8 @@ jobs:
           
           # 1. Find and Patch Kernel & Initrd
           echo "Inspecting boot partition..."
-          ls -R mnt_boot/
+          # Use sudo to avoid permission denied on lost+found
+          sudo ls -R mnt_boot/
           
           KERNEL_FILE=""
           # Priority list for kernel files
