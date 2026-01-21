@@ -5,6 +5,29 @@ import os
 from npk import NovaPackage, NpkPartID, NpkFileContainer
 
 
+def compress_xz(data):
+    # Use external xz tool to ensure stream mode (Block Flags 0x00)
+    # Python's lzma module often adds size fields (Flags 0x01/0x02) which legacy kernels dislike.
+    cmd = [
+        "xz", 
+        "--format=xz", 
+        "--check=crc32", 
+        "--lzma2=dict=32MiB,lc=3,lp=0,pb=2", 
+        "--stdout"
+    ]
+    try:
+        p = subprocess.run(cmd, input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        return p.stdout
+    except subprocess.CalledProcessError as e:
+        print(f"XZ compression failed: {e.stderr.decode()}")
+        raise
+    except FileNotFoundError:
+         # Fallback to lzma module if xz is missing, but warn
+         print("Warning: 'xz' tool not found. Falling back to internal lzma (may break legacy boot).")
+         return lzma.compress(data, check=lzma.CHECK_CRC32, filters=[
+            {"id": lzma.FILTER_LZMA2, "preset": 6, "dict_size": 32*1024*1024, "lc": 3, "lp": 0, "pb": 2}
+         ])
+
 def patch_bzimage(data: bytes, key_dict: dict):
     PE_TEXT_SECTION_OFFSET = 414
     HEADER_PAYLOAD_OFFSET = 584
@@ -36,24 +59,22 @@ def patch_bzimage(data: bytes, key_dict: dict):
             new_initramfs = new_initramfs.replace(
                 old_public_key, new_public_key)
     new_vmlinux = vmlinux.replace(initramfs, new_initramfs)
-    # Modified compression settings for compatibility with older kernels (v6.x / Linux 3.3.5)
-    # Removed lzma.FILTER_X86 (BCJ) as it can cause boot failures if the stub doesn't support it.
-    # Reduced preset to 6 for standard balance.
-    new_vmlinux_xz = lzma.compress(new_vmlinux, check=lzma.CHECK_CRC32, filters=[
-        {"id": lzma.FILTER_LZMA2,
-         "preset": 6,
-         'dict_size': 32*1024*1024,
-         "lc": 3, "lp": 0, "pb": 2, # Standard LZMA2 params usually safe
-         },
-    ])
-    # Fallback to simple preset if the above is still too complex, but let's try this first.
-    # Actually, let's use the simplest robust settings.
-    # 
-    # NOTE: The original script used specific LC/LP/PB. 
-    # If we want to be super safe, we should check the original properties.
-    # But usually just removing BCJ fixes the "bootloop immediately" issue.
     
+    # Use custom compression
+    new_vmlinux_xz = compress_xz(new_vmlinux)
+
     new_payload_length = len(new_vmlinux_xz)
+    assert new_payload_length <= payload_length, 'new vmlinux.xz size is too big'
+    # last 4 bytes is uncompressed size(z_output_len)
+    new_payload_length = new_payload_length + 4
+    new_data = bytearray(data)
+    struct.pack_into(
+        '<I', new_data, HEADER_PAYLOAD_LENGTH_OFFSET, new_payload_length)
+    vmlinux_xz += struct.pack('<I', z_output_len)
+    new_vmlinux_xz += struct.pack('<I', z_output_len)
+    new_vmlinux_xz = new_vmlinux_xz.ljust(len(vmlinux_xz), b'\0')
+    new_data = new_data.replace(vmlinux_xz, new_vmlinux_xz)
+    return new_data
     assert new_payload_length <= payload_length, 'new vmlinux.xz size is too big'
     # last 4 bytes is uncompressed size(z_output_len)
     new_payload_length = new_payload_length + 4
@@ -163,8 +184,10 @@ def patch_pe(data: bytes, key_dict: dict):
     initrd_xz = vmlinux[initrd_xz_offset:initrd_xz_offset+initrd_xz_size]
     new_initrd_xz = patch_initrd_xz(initrd_xz, key_dict)
     new_vmlinux = vmlinux.replace(initrd_xz, new_initrd_xz)
-    new_vmlinux_xz = lzma.compress(new_vmlinux, check=lzma.CHECK_CRC32, filters=[
-                                   {"id": lzma.FILTER_LZMA2, "preset": 9, }])
+    
+    # Use custom compression
+    new_vmlinux_xz = compress_xz(new_vmlinux)
+
     assert len(new_vmlinux_xz) <= len(
         vmlinux_xz), 'new vmlinux xz size is too big'
     print(f'new vmlinux xz size:{len(new_vmlinux_xz)}')
@@ -317,15 +340,8 @@ def patch_legacy_bzimage(data: bytes, key_dict: dict):
                  print(f'Public key patched in vmlinux {old[:16].hex().upper()}...')
                  new_vmlinux = new_vmlinux.replace(old, new)
 
-    # Recompress
-    new_vmlinux_xz = lzma.compress(new_vmlinux, check=lzma.CHECK_CRC32, filters=[
-        {"id": lzma.FILTER_X86},
-        {"id": lzma.FILTER_LZMA2,
-         "preset": 9 | lzma.PRESET_EXTREME,
-         'dict_size': 32*1024*1024,
-         "lc": 4, "lp": 0, "pb": 0,
-         },
-    ])
+    # Recompress using custom xz to avoid block header size fields
+    new_vmlinux_xz = compress_xz(new_vmlinux)
     
     # Add size suffix
     new_vmlinux_xz += struct.pack('<I', z_output_len)
