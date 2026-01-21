@@ -337,7 +337,12 @@ def patch_npk_package(package, key_dict):
 
 
 def patch_npk_file(key_dict, kcdsa_private_key, eddsa_private_key, input_file, output_file=None):
-    npk = NovaPackage.load(input_file)
+    try:
+        npk = NovaPackage.load(input_file)
+    except (AssertionError, Exception) as e:
+        print(f"Skipping invalid NPK: {input_file} ({e})")
+        return
+
     if len(npk._packages) > 0:
         for package in npk._packages:
             patch_npk_package(package, key_dict)
