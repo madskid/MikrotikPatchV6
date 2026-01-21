@@ -72,7 +72,8 @@ def patch_bzimage(data: bytes, key_dict: dict):
         '<I', new_data, HEADER_PAYLOAD_LENGTH_OFFSET, new_payload_length)
     vmlinux_xz += struct.pack('<I', z_output_len)
     new_vmlinux_xz += struct.pack('<I', z_output_len)
-    new_vmlinux_xz = new_vmlinux_xz.ljust(len(vmlinux_xz), b'\0')
+    # Removing ljust padding to ensure size field is at the end
+    # new_vmlinux_xz = new_vmlinux_xz.ljust(len(vmlinux_xz), b'\0')
     new_data = new_data.replace(vmlinux_xz, new_vmlinux_xz)
     return new_data
     assert new_payload_length <= payload_length, 'new vmlinux.xz size is too big'
@@ -83,7 +84,8 @@ def patch_bzimage(data: bytes, key_dict: dict):
         '<I', new_data, HEADER_PAYLOAD_LENGTH_OFFSET, new_payload_length)
     vmlinux_xz += struct.pack('<I', z_output_len)
     new_vmlinux_xz += struct.pack('<I', z_output_len)
-    new_vmlinux_xz = new_vmlinux_xz.ljust(len(vmlinux_xz), b'\0')
+    # Removing ljust padding to ensure size field is at the end
+    # new_vmlinux_xz = new_vmlinux_xz.ljust(len(vmlinux_xz), b'\0')
     new_data = new_data.replace(vmlinux_xz, new_vmlinux_xz)
     return new_data
 
@@ -192,8 +194,11 @@ def patch_pe(data: bytes, key_dict: dict):
         vmlinux_xz), 'new vmlinux xz size is too big'
     print(f'new vmlinux xz size:{len(new_vmlinux_xz)}')
     print(f'old vmlinux xz size:{len(vmlinux_xz)}')
-    print(f'ljust size:{len(vmlinux_xz)-len(new_vmlinux_xz)}')
-    new_vmlinux_xz = new_vmlinux_xz.ljust(len(vmlinux_xz), b'\0')
+    # Removing ljust padding. PE format might require section alignment, 
+    # but internal payload replacement shouldn't pad the XZ stream itself 
+    # if it breaks the size field position. 
+    # We rely on the container to handle external alignment if needed.
+    # new_vmlinux_xz = new_vmlinux_xz.ljust(len(vmlinux_xz), b'\0')
     new_data = data.replace(vmlinux_xz, new_vmlinux_xz)
     return new_data
 
