@@ -209,8 +209,9 @@ jobs:
                echo "Patching Kernel/Initrd on Boot Partition..."
                
                # Find existing kernel/initrd
+               # Prioritize vmlinuz-64 (SMP/64-bit) as it likely contains necessary drivers
                KERNEL_FILE=""
-               for f in "vmlinuz" "kernel" "boot/vmlinuz" "boot/kernel"; do
+               for f in "vmlinuz-64" "boot/vmlinuz-64" "vmlinuz" "kernel" "boot/vmlinuz" "boot/kernel"; do
                    if [ -f "./chr_boot/$f" ]; then
                        KERNEL_FILE="./chr_boot/$f"
                        break
