@@ -1,0 +1,105 @@
+#!/bin/bash
+set -e
+
+# Usage: sudo ./local_patch_chr.sh chr-6.42.6.img
+
+IMAGE="$1"
+if [ -z "$IMAGE" ]; then
+    echo "Usage: sudo ./local_patch_chr.sh <chr_image.img>"
+    exit 1
+fi
+
+if [ "$EUID" -ne 0 ]; then
+  echo "Please run as root (sudo)"
+  exit 1
+fi
+
+# Requirements check
+for cmd in qemu-nbd extlinux python3; do
+    if ! command -v $cmd &> /dev/null; then
+        echo "Error: $cmd not found. Install qemu-utils, syslinux/extlinux, python3."
+        exit 1
+    fi
+done
+
+echo "Patching $IMAGE..."
+
+# Load NBD
+modprobe nbd max_part=8
+
+# Connect Image
+NBD_DEV=/dev/nbd0
+qemu-nbd -c $NBD_DEV -f raw "$IMAGE"
+sleep 2
+
+# Mount Boot Partition (Partition 1)
+mkdir -p mnt_boot
+mount ${NBD_DEV}p1 mnt_boot
+
+echo "Mounted boot partition."
+
+# Identify Kernel and Initrd
+KERNEL=""
+for f in "vmlinuz-64" "boot/vmlinuz-64" "vmlinuz" "kernel"; do
+    if [ -f "mnt_boot/$f" ]; then
+        KERNEL="mnt_boot/$f"
+        break
+    fi
+done
+
+INITRD=""
+for f in "initrd.rgz" "boot/initrd.rgz"; do
+    if [ -f "mnt_boot/$f" ]; then
+        INITRD="mnt_boot/$f"
+        break
+    fi
+done
+
+if [ -z "$KERNEL" ] || [ -z "$INITRD" ]; then
+    echo "Error: Kernel or Initrd not found!"
+    umount mnt_boot
+    qemu-nbd -d $NBD_DEV
+    exit 1
+fi
+
+echo "Found Kernel: $KERNEL"
+echo "Found Initrd: $INITRD"
+
+# Patch Kernel and Initrd
+# Ensure env vars are set by user before running, or hardcode them here if needed.
+# Assuming patch.py is in current dir or MikrotikPatchV6 dir
+PATCH_SCRIPT="./MikrotikPatchV6/patch.py"
+if [ ! -f "$PATCH_SCRIPT" ]; then
+    PATCH_SCRIPT="./patch.py"
+fi
+
+echo "Applying patches..."
+python3 "$PATCH_SCRIPT" kernel "$KERNEL"
+python3 "$PATCH_SCRIPT" kernel "$INITRD"
+
+# Install Syslinux Bootloader (Since LILO breaks with file change)
+echo "Installing Syslinux..."
+mkdir -p mnt_boot/BOOT
+extlinux --install -H 64 -S 32 mnt_boot/BOOT
+
+# Configure Syslinux
+REL_KERNEL=${KERNEL#mnt_boot/}
+REL_INITRD=${INITRD#mnt_boot/}
+
+# Note: root=/dev/sda2 is standard for CHR.
+cat > mnt_boot/BOOT/syslinux.cfg <<EOF
+default system
+label system
+    kernel /$REL_KERNEL
+    initrd /$REL_INITRD
+    append root=/dev/sda2 rootwait console=tty0 console=ttyS0,115200
+EOF
+
+echo "Syslinux configured."
+
+# Cleanup
+umount mnt_boot
+qemu-nbd -d $NBD_DEV
+rm -rf mnt_boot
+
+echo "Done! Image $IMAGE is patched and bootable."
