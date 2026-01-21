@@ -166,49 +166,61 @@ jobs:
             unzip chr.img.zip
             IMG_FILE="chr-$VERSION.img"
             
+            # 1. Prepare Patched System NPK
+            # In v6, the system package is usually inside the bundle or separate.
+            # Assuming we need a patched system.npk to extract kernel/initrd from.
+            # We can use the one from the ISO or download it.
+            # For simplicity, if we patched the ISO, we have them. 
+            # If not, let's just use the one we are about to patch for the image.
+            
+            # CHR image has the system npk in p2. Let's extract it first, patch it, then use it.
             sudo modprobe nbd
             sudo qemu-nbd -c /dev/nbd1 -f raw "$IMG_FILE"
             
             mkdir -p chr_boot chr_ros
-            
-            # CHR Structure: p1 = boot, p2 = routeros data
-            
-            # 1. Patch Kernel in Boot Partition
-            # Using patch.py block for direct block manipulation as per original method
-            # Or mount and patch file. Mounting is safer if file system is supported.
             sudo mount /dev/nbd1p1 chr_boot/
-            
-            if [ -f "chr_boot/boot/initrd.rgz" ]; then
-               echo "Patching CHR initrd..."
-               sudo -E python3 patch.py kernel chr_boot/boot/initrd.rgz
-            elif [ -f "chr_boot/initrd.rgz" ]; then
-               echo "Patching CHR initrd..."
-               sudo -E python3 patch.py kernel chr_boot/initrd.rgz
-            else
-               # Fallback to block patching if file not found (unlikely on mount)
-               echo "initrd not found on mount, trying block patch..."
-               sudo -E python3 patch.py block /dev/nbd1p1 boot/initrd.rgz
-            fi
-            sudo umount chr_boot
-            
-            # 2. Patch Packages in Data Partition
             sudo mount /dev/nbd1p2 chr_ros/
-            # CHR v6 usually stores images in var/pdb/...
-            echo "Patching CHR Packages..."
-            # Find all 'image' files which are likely NPKs in disguise
-            PDB_IMAGES=$(find chr_ros/var/pdb -name "image")
-            for file in $PDB_IMAGES; do
-               echo "Processing CHR package: $file"
-               sudo -E python3 patch.py npk "$file"
-            done
             
-            # Also check for standard .npk if any
-            NPK_FILES=$(find chr_ros/ -name "*.npk")
-            for file in $NPK_FILES; do
-               echo "Processing $file..."
-               sudo -E python3 patch.py npk "$file"
-            done
+            # Find system package in CHR
+            SYSTEM_IMAGE=$(sudo find chr_ros/var/pdb -name "image" | xargs grep -l "system" || true)
+            if [ -z "$SYSTEM_IMAGE" ]; then
+               # Try finding any npk
+               SYSTEM_IMAGE=$(sudo find chr_ros/ -name "system-*.npk" | head -n 1)
+            fi
             
+            if [ -n "$SYSTEM_IMAGE" ]; then
+               echo "Found system package at $SYSTEM_IMAGE. Patching..."
+               sudo cp "$SYSTEM_IMAGE" ./system_to_patch.npk
+               sudo -E python3 patch.py npk ./system_to_patch.npk
+               
+               echo "Extracting Kernel/Initrd from patched system NPK..."
+               sudo -E python3 extract_kernel.py ./system_to_patch.npk ./chr_boot
+               
+               echo "Installing Syslinux..."
+               sudo mkdir -p chr_boot/BOOT
+               sudo extlinux --install -H 64 -S 32 chr_boot/BOOT
+               echo -e "default system\nlabel system\n\tkernel /kernel\n\tinitrd /initrd.rgz\n\tappend load_ramdisk=1 root=/dev/ram0 quiet" | sudo tee syslinux.cfg > /dev/null
+               sudo cp syslinux.cfg chr_boot/BOOT/
+               
+               # 2. Patch all other packages in Data Partition
+               echo "Patching all CHR Packages..."
+               PDB_IMAGES=$(sudo find chr_ros/var/pdb -name "image")
+               for file in $PDB_IMAGES; do
+                  echo "Processing $file"
+                  sudo -E python3 patch.py npk "$file"
+               done
+               
+               NPK_FILES=$(sudo find chr_ros/ -name "*.npk")
+               for file in $NPK_FILES; do
+                  echo "Processing $file..."
+                  sudo -E python3 patch.py npk "$file"
+               done
+            else
+               echo "Error: Could not find system package in CHR image!"
+               exit 1
+            fi
+            
+            sudo umount chr_boot
             sudo umount chr_ros
             sudo qemu-nbd -d /dev/nbd1
             rm -rf chr_boot chr_ros
