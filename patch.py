@@ -89,31 +89,6 @@ def patch_bzimage(data: bytes, key_dict: dict):
     struct.pack_into('<I', new_data, 0x1F4, syssize)
     
     return new_data
-    assert new_payload_length <= payload_length, 'new vmlinux.xz size is too big'
-    # last 4 bytes is uncompressed size(z_output_len)
-    new_payload_length = new_payload_length + 4
-    new_data = bytearray(data)
-    struct.pack_into(
-        '<I', new_data, HEADER_PAYLOAD_LENGTH_OFFSET, new_payload_length)
-    vmlinux_xz += struct.pack('<I', z_output_len)
-    new_vmlinux_xz += struct.pack('<I', z_output_len)
-    # Removing ljust padding to ensure size field is at the end
-    # new_vmlinux_xz = new_vmlinux_xz.ljust(len(vmlinux_xz), b'\0')
-    new_data = new_data.replace(vmlinux_xz, new_vmlinux_xz)
-    
-    # Update syssize (Offset 0x1F4) for bootloaders (Syslinux/GRUB)
-    setup_sects = new_data[0x1F1]
-    if setup_sects == 0:
-        setup_sects = 4
-    setup_size = (setup_sects + 1) * 512
-    total_size = len(new_data)
-    protected_mode_size = total_size - setup_size
-    syssize = (protected_mode_size + 15) // 16
-    
-    print(f"Updating syssize at 0x1F4: {syssize} paragraphs ({protected_mode_size} bytes)")
-    struct.pack_into('<I', new_data, 0x1F4, syssize)
-    
-    return new_data
 
 
 def patch_block(dev:str,file:str,key_dict):
@@ -389,6 +364,20 @@ def patch_legacy_bzimage(data: bytes, key_dict: dict):
          struct.pack_into('<I', new_data, HEADER_PAYLOAD_LENGTH_OFFSET, len(new_vmlinux_xz))
     
     suffix = data[payload_offset + compressed_size + 4:]
+    
+    # Update syssize (Offset 0x1F4) for bootloaders
+    setup_sects = new_data[0x1F1]
+    if setup_sects == 0: setup_sects = 4
+    setup_size = (setup_sects + 1) * 512
+    
+    # Calculate expected total size
+    total_size = payload_offset + len(new_vmlinux_xz) + len(suffix)
+    protected_mode_size = total_size - setup_size
+    syssize = (protected_mode_size + 15) // 16
+    
+    print(f"Updating syssize at 0x1F4: {syssize} paragraphs ({protected_mode_size} bytes)")
+    struct.pack_into('<I', new_data, 0x1F4, syssize)
+
     return new_data[:payload_offset] + new_vmlinux_xz + suffix
 
 
