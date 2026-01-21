@@ -172,14 +172,15 @@ jobs:
           
           echo "Patching CHR Packages..."
           # Find 'image' files in pdb (Package Database)
-          PDB_IMAGES=$(find mnt_ros/var/pdb -name "image")
+          # Use sudo to avoid permission denied on lost+found or protected dirs
+          PDB_IMAGES=$(sudo find mnt_ros/var/pdb -name "image")
           for file in $PDB_IMAGES; do
              echo "Processing CHR package: $file"
              sudo -E python3 patch.py npk "$file"
           done
           
           # Also check standard locations if any
-          NPK_FILES=$(find mnt_ros/ -name "*.npk")
+          NPK_FILES=$(sudo find mnt_ros/ -name "*.npk")
           for file in $NPK_FILES; do
              echo "Processing $file..."
              sudo -E python3 patch.py npk "$file"
