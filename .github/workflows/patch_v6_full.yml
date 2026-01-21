@@ -255,8 +255,7 @@ jobs:
                # Update syslinux config
                # Changed root=/dev/ram0 to root=/dev/sda2 for standard CHR boot.
                # Added rootwait to ensure disk is ready.
-               # Added earlyprintk=vga,keep loglevel=7 debug to diagnose "stuck" state.
-               echo -e "default system\nlabel system\n\tkernel $REL_KERNEL\n\tinitrd $REL_INITRD\n\tappend root=/dev/sda2 rootwait earlyprintk=vga,keep loglevel=7 debug console=tty0 console=ttyS0,115200" | sudo tee syslinux.cfg > /dev/null
+               echo -e "default system\nlabel system\n\tkernel $REL_KERNEL\n\tinitrd $REL_INITRD\n\tappend root=/dev/sda2 rootwait console=tty0 console=ttyS0,115200" | sudo tee syslinux.cfg > /dev/null
                sudo cp syslinux.cfg chr_boot/BOOT/
                
                # 2. Patch all other packages in Data Partition
