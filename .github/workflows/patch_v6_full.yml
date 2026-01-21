@@ -1,0 +1,246 @@
+name: Patch RouterOS v6 Full (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      routeros_version:
+        description: 'RouterOS Version (e.g., 6.42.6)'
+        required: true
+        default: '6.42.6'
+      patch_iso:
+        description: 'Patch ISO'
+        type: boolean
+        default: true
+      patch_install_image:
+        description: 'Patch Install Image (IMG/ZIP)'
+        type: boolean
+        default: true
+      patch_chr:
+        description: 'Patch CHR (IMG/ZIP)'
+        type: boolean
+        default: true
+      publish_release:
+        description: 'Publish to GitHub Releases'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+env:
+  # Public Key Original from RouterOS v6.42.6 (Verified)
+  MIKRO_NPK_SIGN_PUBLIC_KEY: C275D7235766AEC866D4C59573C8E188A51339936E94D2CCF11F9FF5BAED7137
+  MIKRO_LICENSE_PUBLIC_KEY: 8E1067E4305FCDC0CFBF95C10F96E5DFE8C49AEF486BD1A4E2E96C27F01E3E32
+  
+  # Custom Keys (Derived & Verified)
+  CUSTOM_NPK_SIGN_PRIVATE_KEY: 7D008D9B80B036FB0205601FEE79D550927EBCA937B7008CC877281F2F8AC640
+  CUSTOM_NPK_SIGN_PUBLIC_KEY: 9522B44B781CBC64E930C563588E6872FBDCDBEF16E963D52BD07E29A15D1B12
+  CUSTOM_LICENSE_PRIVATE_KEY: 9DBC845E9018537810FDAE62824322EEE1B12BAD81FCA28EC295FB397C61CE0B
+  CUSTOM_LICENSE_PUBLIC_KEY: 723A34A6E3300F23E4BAA06156B9327514AEC170732655F16E04C17928DD770F
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mkisofs xorriso qemu-utils extlinux squashfs-tools zip unzip --no-install-recommends
+
+      # --- PATCH ISO ---
+      - name: Patch ISO
+        if: ${{ inputs.patch_iso == true }}
+        run: |
+          VERSION="${{ inputs.routeros_version }}"
+          echo "Downloading ISO version $VERSION..."
+          curl -s -o mikrotik.iso "https://download.mikrotik.com/routeros/$VERSION/mikrotik-$VERSION.iso"
+          
+          if [ -s mikrotik.iso ]; then
+            mkdir -p iso patched_iso
+            sudo mount -o loop,ro mikrotik.iso iso/
+            sudo cp -r iso/* patched_iso/
+            sudo umount iso/
+            sudo rm -rf iso/
+            sudo chmod -R u+w patched_iso/
+            
+            echo "Patching Kernel (ISO)..."
+            sudo -E python3 patch.py kernel patched_iso/isolinux/initrd.rgz
+            
+            echo "Patching NPKs (ISO)..."
+            for file in patched_iso/*.npk; do
+              echo "Processing $file..."
+              sudo -E python3 patch.py npk "$file"
+            done
+            
+            echo "Rebuilding ISO..."
+            sudo mkisofs -o "mikrotik-$VERSION-patched.iso" \
+               -V "MikroTik $VERSION" \
+               -sysid "" -preparer "MiKroTiK" \
+               -publisher "" -A "MiKroTiK RouterOS" \
+               -input-charset utf-8 \
+               -b isolinux/isolinux.bin \
+               -c isolinux/boot.cat \
+               -no-emul-boot \
+               -boot-load-size 4 \
+               -boot-info-table \
+               -R -J -quiet \
+               patched_iso/
+            
+            sudo rm -rf patched_iso
+            echo "ISO Patching Done."
+          else
+            echo "Failed to download ISO."
+          fi
+
+      # --- PATCH INSTALL IMAGE ---
+      - name: Patch Install Image
+        if: ${{ inputs.patch_install_image == true }}
+        run: |
+          VERSION="${{ inputs.routeros_version }}"
+          echo "Downloading Install Image version $VERSION..."
+          curl -s -o install-image.zip "https://download.mikrotik.com/routeros/$VERSION/install-image-$VERSION.zip"
+          
+          if [ -s install-image.zip ]; then
+            unzip install-image.zip
+            IMG_FILE="install-image-$VERSION.img"
+            
+            # Load NBD module
+            sudo modprobe nbd
+            
+            # Connect image to NBD
+            sudo qemu-nbd -c /dev/nbd0 -f raw "$IMG_FILE"
+            
+            mkdir -p install_mount
+            # Install Image usually has one partition or is a superfloppy
+            # Try mounting the device directly first
+            sudo mount /dev/nbd0 install_mount/ || sudo mount /dev/nbd0p1 install_mount/
+            
+            echo "Patching Kernel (Install Image)..."
+            # Location might vary, usually initrd.rgz is at root or /boot
+            if [ -f "install_mount/initrd.rgz" ]; then
+                sudo -E python3 patch.py kernel install_mount/initrd.rgz
+            elif [ -f "install_mount/boot/initrd.rgz" ]; then
+                sudo -E python3 patch.py kernel install_mount/boot/initrd.rgz
+            else
+                echo "Warning: initrd.rgz not found in install-image!"
+            fi
+            
+            echo "Patching NPKs (Install Image)..."
+            NPK_FILES=$(find install_mount/ -name "*.npk")
+            for file in $NPK_FILES; do
+              echo "Processing $file..."
+              sudo -E python3 patch.py npk "$file"
+            done
+            
+            sudo umount install_mount
+            sudo qemu-nbd -d /dev/nbd0
+            rm -rf install_mount
+            
+            # Zip it back
+            mv "$IMG_FILE" "install-image-$VERSION-patched.img"
+            zip "install-image-$VERSION-patched.zip" "install-image-$VERSION-patched.img"
+            rm "install-image-$VERSION-patched.img"
+            
+            echo "Install Image Patching Done."
+          else
+             echo "Failed to download Install Image."
+          fi
+
+      # --- PATCH CHR ---
+      - name: Patch CHR
+        if: ${{ inputs.patch_chr == true }}
+        run: |
+          VERSION="${{ inputs.routeros_version }}"
+          echo "Downloading CHR version $VERSION..."
+          curl -s -o chr.img.zip "https://download.mikrotik.com/routeros/$VERSION/chr-$VERSION.img.zip"
+          
+          if [ -s chr.img.zip ]; then
+            unzip chr.img.zip
+            IMG_FILE="chr-$VERSION.img"
+            
+            sudo modprobe nbd
+            sudo qemu-nbd -c /dev/nbd1 -f raw "$IMG_FILE"
+            
+            mkdir -p chr_boot chr_ros
+            
+            # CHR Structure: p1 = boot, p2 = routeros data
+            
+            # 1. Patch Kernel in Boot Partition
+            # Using patch.py block for direct block manipulation as per original method
+            # Or mount and patch file. Mounting is safer if file system is supported.
+            sudo mount /dev/nbd1p1 chr_boot/
+            
+            if [ -f "chr_boot/boot/initrd.rgz" ]; then
+               echo "Patching CHR initrd..."
+               sudo -E python3 patch.py kernel chr_boot/boot/initrd.rgz
+            elif [ -f "chr_boot/initrd.rgz" ]; then
+               echo "Patching CHR initrd..."
+               sudo -E python3 patch.py kernel chr_boot/initrd.rgz
+            else
+               # Fallback to block patching if file not found (unlikely on mount)
+               echo "initrd not found on mount, trying block patch..."
+               sudo -E python3 patch.py block /dev/nbd1p1 boot/initrd.rgz
+            fi
+            sudo umount chr_boot
+            
+            # 2. Patch Packages in Data Partition
+            sudo mount /dev/nbd1p2 chr_ros/
+            # CHR v6 usually stores images in var/pdb/...
+            echo "Patching CHR Packages..."
+            # Find all 'image' files which are likely NPKs in disguise
+            PDB_IMAGES=$(find chr_ros/var/pdb -name "image")
+            for file in $PDB_IMAGES; do
+               echo "Processing CHR package: $file"
+               sudo -E python3 patch.py npk "$file"
+            done
+            
+            # Also check for standard .npk if any
+            NPK_FILES=$(find chr_ros/ -name "*.npk")
+            for file in $NPK_FILES; do
+               echo "Processing $file..."
+               sudo -E python3 patch.py npk "$file"
+            done
+            
+            sudo umount chr_ros
+            sudo qemu-nbd -d /dev/nbd1
+            rm -rf chr_boot chr_ros
+            
+            # Zip it back
+            mv "$IMG_FILE" "chr-$VERSION-patched.img"
+            zip "chr-$VERSION-patched.img.zip" "chr-$VERSION-patched.img"
+            rm "chr-$VERSION-patched.img"
+            
+            echo "CHR Patching Done."
+          else
+            echo "Failed to download CHR."
+          fi
+
+      - name: Create Release
+        if: ${{ inputs.publish_release == true }}
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "RouterOS ${{ inputs.routeros_version }} (Patched)"
+          tag_name: "v${{ inputs.routeros_version }}"
+          body: |
+            Patched RouterOS ${{ inputs.routeros_version }}.
+            
+            **Artifacts:**
+            - ISO: CD/DVD Installation
+            - Install Image: Netinstall / Flash
+            - CHR: Cloud Hosted Router Image
+            
+            **Keys used:**
+            - Public Key (Check): `C275...`
+            - Signing Algorithm: SHA1 (Legacy)
+          files: |
+            mikrotik-${{ inputs.routeros_version }}-patched.iso
+            install-image-${{ inputs.routeros_version }}-patched.zip
+            chr-${{ inputs.routeros_version }}-patched.img.zip
