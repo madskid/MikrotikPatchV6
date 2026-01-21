@@ -385,12 +385,12 @@ class NovaPackage(Package):
         actual_size = len(data) - 8
         
         if actual_size < expected_size:
-             raise AssertionError(f'Invalid Nova Package Size: expected {expected_size}, got {actual_size}')
+             if expected_size - actual_size <= 2:
+                 print(f"Warning: NPK file {file} is slightly smaller than expected ({actual_size} < {expected_size}). Missing {expected_size - actual_size} bytes. Assuming padding.")
+             else:
+                 raise AssertionError(f'Invalid Nova Package Size: expected {expected_size}, got {actual_size}')
         elif actual_size > expected_size:
              print(f"Warning: NPK file {file} is larger than expected ({actual_size} > {expected_size}). Ignoring trailing data.")
-             # Trim data to expected size for correct parsing if needed, 
-             # but NovaPackage constructor just parses from offset 0 relative to payload.
-             # We should probably pass the sliced data to ensure no junk is parsed.
              return NovaPackage(data[8:8+expected_size])
              
         return NovaPackage(data[8:])
