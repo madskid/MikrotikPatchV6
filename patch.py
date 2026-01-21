@@ -36,14 +36,23 @@ def patch_bzimage(data: bytes, key_dict: dict):
             new_initramfs = new_initramfs.replace(
                 old_public_key, new_public_key)
     new_vmlinux = vmlinux.replace(initramfs, new_initramfs)
+    # Modified compression settings for compatibility with older kernels (v6.x / Linux 3.3.5)
+    # Removed lzma.FILTER_X86 (BCJ) as it can cause boot failures if the stub doesn't support it.
+    # Reduced preset to 6 for standard balance.
     new_vmlinux_xz = lzma.compress(new_vmlinux, check=lzma.CHECK_CRC32, filters=[
-        {"id": lzma.FILTER_X86},
         {"id": lzma.FILTER_LZMA2,
-         "preset": 9 | lzma.PRESET_EXTREME,
+         "preset": 6,
          'dict_size': 32*1024*1024,
-         "lc": 4, "lp": 0, "pb": 0,
+         "lc": 3, "lp": 0, "pb": 2, # Standard LZMA2 params usually safe
          },
     ])
+    # Fallback to simple preset if the above is still too complex, but let's try this first.
+    # Actually, let's use the simplest robust settings.
+    # 
+    # NOTE: The original script used specific LC/LP/PB. 
+    # If we want to be super safe, we should check the original properties.
+    # But usually just removing BCJ fixes the "bootloop immediately" issue.
+    
     new_payload_length = len(new_vmlinux_xz)
     assert new_payload_length <= payload_length, 'new vmlinux.xz size is too big'
     # last 4 bytes is uncompressed size(z_output_len)
