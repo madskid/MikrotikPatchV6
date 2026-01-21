@@ -161,9 +161,9 @@ jobs:
              echo "Patching Kernel/Initrd on Boot Partition..."
              
              # Find existing kernel/initrd
-             # Prioritize vmlinuz-64 (SMP/64-bit) as it likely contains necessary drivers
+             # Reverting priority to vmlinuz (32-bit) because it booted successfully in previous tests (unlike 64-bit which bootloops).
              KERNEL_FILE=""
-             for f in "vmlinuz-64" "boot/vmlinuz-64" "vmlinuz" "kernel" "boot/vmlinuz" "boot/kernel"; do
+             for f in "vmlinuz" "kernel" "boot/vmlinuz" "boot/kernel" "vmlinuz-64" "boot/vmlinuz-64"; do
                  if [ -f "./mnt_boot/$f" ]; then
                      KERNEL_FILE="./mnt_boot/$f"
                      break
