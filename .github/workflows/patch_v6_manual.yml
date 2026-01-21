@@ -106,7 +106,6 @@ jobs:
           VERSION="${{ inputs.routeros_version }}"
           echo "Downloading CHR version $VERSION..."
           curl -s -o chr.img.zip "https://download.mikrotik.com/routeros/$VERSION/chr-$VERSION.img.zip"
-          curl -s -L -o refind.zip "https://sourceforge.net/projects/refind/files/0.14.2/refind-bin-0.14.2.zip/download"
           
           if [ ! -s chr.img.zip ]; then
             echo "Error: Failed to download CHR."
@@ -114,12 +113,9 @@ jobs:
           fi
           
           unzip chr.img.zip
-          unzip -q refind.zip refind-bin-0.14.2/refind/refind_x64.efi
-          mv refind-bin-0.14.2/refind/refind_x64.efi BOOTX64.EFI
-          
           IMG_FILE="chr-$VERSION.img"
           
-          # Load NBD module (try/catch in case it's built-in or fails)
+          # Load NBD module
           sudo modprobe nbd max_part=8 || true
           
           # Connect image
@@ -131,7 +127,6 @@ jobs:
           # Check partitions
           if [ ! -b /dev/nbd0p1 ]; then
              echo "Error: Partitions not found on /dev/nbd0"
-             # Fallback debug
              ls -l /dev/nbd*
              exit 1
           fi
@@ -139,20 +134,16 @@ jobs:
           sudo mount /dev/nbd0p1 mnt_boot/
           sudo mount /dev/nbd0p2 mnt_ros/
           
-          # 1. Install Bootloader (ReFind)
-          echo "Installing ReFind..."
-          sudo mkdir -p mnt_boot/EFI/BOOT
-          sudo cp BOOTX64.EFI mnt_boot/EFI/BOOT/BOOTX64.EFI
-          
-          # 2. Install Syslinux Config
-          echo "Configuring Syslinux..."
-          sudo mkdir -p mnt_boot/BOOT
-          sudo extlinux --install -H 64 -S 32 mnt_boot/BOOT
-          echo -e "default system\nlabel system\n\tkernel /EFI/BOOT/BOOTX64.EFI\n\tappend load_ramdisk=1 root=/dev/ram0 quiet" | sudo tee syslinux.cfg > /dev/null
-          sudo cp syslinux.cfg mnt_boot/BOOT/
-          
-          # 3. Patch Kernel (initrd) in Boot Partition
-          # Usually at /boot/initrd.rgz or /initrd.rgz relative to partition root
+          # 1. Patch Kernel (EFI/BOOT/BOOTX64.EFI) in Boot Partition
+          # In CHR, BOOTX64.EFI is the Linux Kernel (EFISTUB)
+          if [ -f "mnt_boot/EFI/BOOT/BOOTX64.EFI" ]; then
+             echo "Patching CHR Kernel (BOOTX64.EFI)..."
+             sudo -E python3 patch.py kernel "mnt_boot/EFI/BOOT/BOOTX64.EFI"
+          else
+             echo "Warning: BOOTX64.EFI not found! Kernel patching might fail."
+          fi
+
+          # 2. Patch Initrd
           if [ -f "mnt_boot/boot/initrd.rgz" ]; then
              TARGET_INITRD="mnt_boot/boot/initrd.rgz"
           else
@@ -160,26 +151,28 @@ jobs:
           fi
           
           if [ -f "$TARGET_INITRD" ]; then
-             echo "Patching CHR Kernel ($TARGET_INITRD)..."
+             echo "Patching CHR Initrd ($TARGET_INITRD)..."
              sudo -E python3 patch.py kernel "$TARGET_INITRD"
           else
              echo "Warning: initrd.rgz not found in CHR boot partition!"
           fi
           
-          # 4. Patch Packages (RouterOS)
-          # In CHR, the system package image is often at var/pdb/system/image
-          # We can also just patch the .npk if we downloaded it separately, but here we patch in-place.
+          # 3. Install Syslinux (Legacy Bootloader)
+          # We point Syslinux to the patched BOOTX64.EFI kernel
+          echo "Configuring Syslinux..."
+          sudo mkdir -p mnt_boot/BOOT
+          sudo extlinux --install -H 64 -S 32 mnt_boot/BOOT
+          echo -e "default system\nlabel system\n\tkernel /EFI/BOOT/BOOTX64.EFI\n\tappend load_ramdisk=1 root=/dev/ram0 quiet" | sudo tee syslinux.cfg > /dev/null
+          sudo cp syslinux.cfg mnt_boot/BOOT/
           
+          # 4. Patch Packages (RouterOS)
           echo "Patching CHR Packages..."
-          # Find 'image' files in pdb (Package Database)
-          # Use sudo to avoid permission denied on lost+found or protected dirs
           PDB_IMAGES=$(sudo find mnt_ros/var/pdb -name "image")
           for file in $PDB_IMAGES; do
              echo "Processing CHR package: $file"
              sudo -E python3 patch.py npk "$file"
           done
           
-          # Also check standard locations if any
           NPK_FILES=$(sudo find mnt_ros/ -name "*.npk")
           for file in $NPK_FILES; do
              echo "Processing $file..."
