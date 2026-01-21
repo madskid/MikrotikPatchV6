@@ -146,6 +146,7 @@ jobs:
           
           # 2. Install Syslinux Config
           echo "Configuring Syslinux..."
+          sudo mkdir -p mnt_boot/BOOT
           sudo extlinux --install -H 64 -S 32 mnt_boot/BOOT
           echo -e "default system\nlabel system\n\tkernel /EFI/BOOT/BOOTX64.EFI\n\tappend load_ramdisk=1 root=/dev/ram0 quiet" | sudo tee syslinux.cfg > /dev/null
           sudo cp syslinux.cfg mnt_boot/BOOT/
