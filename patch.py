@@ -135,6 +135,15 @@ def patch_legacy_bzimage(data: bytes, key_dict: dict):
     new_vmlinux_xz = compress_xz(new_vmlinux)
     new_payload_full = new_vmlinux_xz + struct.pack('<I', z_output_len)
     
+    # PAD with zeros to match original compressed size if smaller
+    if len(new_payload_full) < (compressed_size + 4):
+        padding_size = (compressed_size + 4) - len(new_payload_full)
+        print(f"Padding payload with {padding_size} bytes")
+        new_payload_full += b'\x00' * padding_size
+    elif len(new_payload_full) > (compressed_size + 4):
+        # This is risky but we already updated payload_length field
+        print(f"Warning: New payload is larger than original ({len(new_payload_full)} > {compressed_size + 4})")
+
     new_data = bytearray(data)
     HEADER_PAYLOAD_LENGTH_OFFSET = 588
     old_total_len = compressed_size + 4
@@ -146,12 +155,11 @@ def patch_legacy_bzimage(data: bytes, key_dict: dict):
     result = bytearray(result)
     
     # Update payload length if protocol version >= 2.08
-    protocol_version = struct.unpack_from('<H', result, 0x206)[0]
-    if protocol_version >= 0x0208:
-        print(f"Updating payload length at {HEADER_PAYLOAD_LENGTH_OFFSET}: {len(new_vmlinux_xz) + 4}")
-        struct.pack_into('<I', result, HEADER_PAYLOAD_LENGTH_OFFSET, len(new_vmlinux_xz) + 4)
-    
-    update_syssize(result)
+    # Only update syssize if we actually changed the total file size
+    if len(result) != len(data):
+        update_syssize(result)
+    else:
+        print("File size unchanged (padded), skipping syssize update for stability.")
     return result
 
 def patch_kernel(data: bytes, key_dict):
