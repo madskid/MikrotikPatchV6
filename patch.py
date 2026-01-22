@@ -6,12 +6,14 @@ from npk import NovaPackage, NpkPartID, NpkFileContainer
 
 
 def compress_xz(data):
-    # Use external xz tool to ensure stream mode (Block Flags 0x00)
-    # Python's lzma module often adds size fields (Flags 0x01/0x02) which legacy kernels dislike.
+    # Use external xz tool with settings that produce a single block and minimal headers.
+    # --check=crc32 is important as some bootloaders don't support crc64.
+    # --lzma2=dict=32MiB matches original Mikrotik 6.42.6 dictionary size.
     cmd = [
         "xz", 
         "--format=xz", 
         "--check=crc32", 
+        "--block-size=4294967295", # Force single block
         "--lzma2=dict=32MiB,lc=3,lp=0,pb=2", 
         "--stdout"
     ]

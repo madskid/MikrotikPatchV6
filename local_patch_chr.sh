@@ -65,37 +65,46 @@ fi
 echo "Found Kernel: $KERNEL"
 echo "Found Initrd: $INITRD"
 
-# Patch Kernel and Initrd
-# Ensure env vars are set by user before running, or hardcode them here if needed.
-# Assuming patch.py is in current dir or MikrotikPatchV6 dir
+# Patch All Kernels and Initrd
 PATCH_SCRIPT="./MikrotikPatchV6/patch.py"
 if [ ! -f "$PATCH_SCRIPT" ]; then
     PATCH_SCRIPT="./patch.py"
 fi
 
-echo "Applying patches..."
-python3 "$PATCH_SCRIPT" kernel "$KERNEL"
-python3 "$PATCH_SCRIPT" kernel "$INITRD"
+echo "Applying patches to all kernels..."
+# Patch any vmlinuz file found
+find mnt_boot -name "vmlinuz*" -exec python3 "$PATCH_SCRIPT" kernel {} \;
+# Patch initrd
+if [ -f "$INITRD" ]; then
+    python3 "$PATCH_SCRIPT" kernel "$INITRD"
+fi
 
-# Install Syslinux Bootloader (Since LILO breaks with file change)
+# Install Syslinux Bootloader
 echo "Installing Syslinux..."
 mkdir -p mnt_boot/BOOT
 extlinux --install -H 64 -S 32 mnt_boot/BOOT
 
 # Configure Syslinux
-REL_KERNEL=${KERNEL#mnt_boot/}
-REL_INITRD=${INITRD#mnt_boot/}
+# We prioritize vmlinuz-64 if it exists, otherwise use what was found
+BEST_KERNEL="/vmlinuz-64"
+if [ ! -f "mnt_boot/vmlinuz-64" ]; then
+    BEST_KERNEL="/${KERNEL#mnt_boot/}"
+fi
 
-# Note: root=/dev/ram0 load_ramdisk=1 is standard for RouterOS to use initrd logic.
 cat > mnt_boot/BOOT/syslinux.cfg <<EOF
 default system
+timeout 10
 label system
-    kernel /$REL_KERNEL
-    initrd /$REL_INITRD
+    kernel $BEST_KERNEL
+    initrd /${INITRD#mnt_boot/}
+    append load_ramdisk=1 root=/dev/ram0 quiet console=tty0 console=ttyS0,115200
+label backup
+    kernel /vmlinuz-smp
+    initrd /${INITRD#mnt_boot/}
     append load_ramdisk=1 root=/dev/ram0 quiet console=tty0 console=ttyS0,115200
 EOF
 
-echo "Syslinux configured."
+echo "Syslinux configured with priority: $BEST_KERNEL"
 
 # Install MBR to the disk (to ensure BIOS boots the partition)
 if [ -f "/usr/lib/syslinux/mbr/mbr.bin" ]; then

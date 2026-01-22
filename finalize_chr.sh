@@ -56,15 +56,22 @@ mount /dev/nbd0p2 ./mnt_ros
 echo "Extracting Kernel and Initrd from Patched NPK..."
 python3 extract_kernel.py "$PATCHED_NPK" ./mnt_boot
 
-echo "Installing Syslinux..."
-# Ensure BOOT directory exists
-mkdir -p ./mnt_boot/BOOT
-extlinux --install -H 64 -S 32 ./mnt_boot/BOOT
+echo "Configuring Syslinux..."
+# Check which kernel we have
+KERNEL_FILE="/kernel"
+if [ -f "./mnt_boot/vmlinuz-64" ]; then
+    KERNEL_FILE="/vmlinuz-64"
+fi
 
 cat > syslinux.cfg <<EOF
 default system
+timeout 10
 label system
-	kernel /kernel
+	kernel $KERNEL_FILE
+	initrd /initrd.rgz
+	append load_ramdisk=1 root=/dev/ram0 quiet console=tty0 console=ttyS0,115200
+label backup
+	kernel /vmlinuz-smp
 	initrd /initrd.rgz
 	append load_ramdisk=1 root=/dev/ram0 quiet console=tty0 console=ttyS0,115200
 EOF
