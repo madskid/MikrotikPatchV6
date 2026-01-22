@@ -86,16 +86,27 @@ extlinux --install -H 64 -S 32 mnt_boot/BOOT
 REL_KERNEL=${KERNEL#mnt_boot/}
 REL_INITRD=${INITRD#mnt_boot/}
 
-# Note: root=/dev/sda2 is standard for CHR.
+# Note: root=/dev/ram0 load_ramdisk=1 is standard for RouterOS to use initrd logic.
 cat > mnt_boot/BOOT/syslinux.cfg <<EOF
 default system
 label system
     kernel /$REL_KERNEL
     initrd /$REL_INITRD
-    append root=/dev/sda2 rootwait console=tty0 console=ttyS0,115200
+    append load_ramdisk=1 root=/dev/ram0 quiet console=tty0 console=ttyS0,115200
 EOF
 
 echo "Syslinux configured."
+
+# Install MBR to the disk (to ensure BIOS boots the partition)
+if [ -f "/usr/lib/syslinux/mbr/mbr.bin" ]; then
+    echo "Installing MBR..."
+    dd if=/usr/lib/syslinux/mbr/mbr.bin of=$NBD_DEV bs=440 count=1
+elif [ -f "/usr/lib/EXTLINUX/mbr.bin" ]; then
+    echo "Installing MBR..."
+    dd if=/usr/lib/EXTLINUX/mbr.bin of=$NBD_DEV bs=440 count=1
+else
+    echo "Warning: Syslinux MBR (mbr.bin) not found. Image might not boot if MBR is missing or corrupted."
+fi
 
 # Cleanup
 umount mnt_boot

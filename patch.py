@@ -138,14 +138,17 @@ def patch_legacy_bzimage(data: bytes, key_dict: dict):
     old_total_len = compressed_size + 4
     stored_len = struct.unpack_from('<I', data, HEADER_PAYLOAD_LENGTH_OFFSET)[0]
     
-    if stored_len == old_total_len:
-         print(f"Updating payload length at {HEADER_PAYLOAD_LENGTH_OFFSET}")
-         struct.pack_into('<I', new_data, HEADER_PAYLOAD_LENGTH_OFFSET, len(new_vmlinux_xz) + 4)
-    
     suffix = data[payload_offset + compressed_size + 4:]
     result = new_data[:payload_offset] + new_payload_full + suffix
     
     result = bytearray(result)
+    
+    # Update payload length if protocol version >= 2.08
+    protocol_version = struct.unpack_from('<H', result, 0x206)[0]
+    if protocol_version >= 0x0208:
+        print(f"Updating payload length at {HEADER_PAYLOAD_LENGTH_OFFSET}: {len(new_vmlinux_xz) + 4}")
+        struct.pack_into('<I', result, HEADER_PAYLOAD_LENGTH_OFFSET, len(new_vmlinux_xz) + 4)
+    
     update_syssize(result)
     return result
 

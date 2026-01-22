@@ -61,16 +61,26 @@ echo "Installing Syslinux..."
 mkdir -p ./mnt_boot/BOOT
 extlinux --install -H 64 -S 32 ./mnt_boot/BOOT
 
-echo "Configuring Syslinux..."
 cat > syslinux.cfg <<EOF
 default system
 label system
 	kernel /kernel
 	initrd /initrd.rgz
-	append load_ramdisk=1 root=/dev/ram0 quiet
+	append load_ramdisk=1 root=/dev/ram0 quiet console=tty0 console=ttyS0,115200
 EOF
 cp syslinux.cfg ./mnt_boot/BOOT/
 rm syslinux.cfg
+
+# Install MBR to the disk
+if [ -f "/usr/lib/syslinux/mbr/mbr.bin" ]; then
+    echo "Installing MBR..."
+    dd if=/usr/lib/syslinux/mbr/mbr.bin of=/dev/nbd0 bs=440 count=1
+elif [ -f "/usr/lib/EXTLINUX/mbr.bin" ]; then
+    echo "Installing MBR..."
+    dd if=/usr/lib/EXTLINUX/mbr.bin of=/dev/nbd0 bs=440 count=1
+else
+    echo "Warning: Syslinux MBR (mbr.bin) not found."
+fi
 
 echo "Injecting Patched RouterOS Package..."
 # The target path might vary slightly, but standard CHR structure is usually this:

@@ -38,7 +38,7 @@ def extract_kernel(npk_path, output_dir):
         
         # Kernel logic
         if not found_kernel:
-            if name in ['boot/kernel', 'boot/vmlinuz', 'vmlinuz', 'kernel']:
+            if name in ['boot/vmlinuz-64', 'vmlinuz-64', 'boot/kernel', 'boot/vmlinuz', 'vmlinuz', 'kernel']:
                 print(f"Found kernel: {name} -> extracting to kernel")
                 with open(os.path.join(output_dir, 'kernel'), 'wb') as f:
                     f.write(item.data)
