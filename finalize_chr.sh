@@ -79,11 +79,14 @@ cp syslinux.cfg ./mnt_boot/BOOT/
 rm syslinux.cfg
 
 # Install MBR to the disk
-if [ -f "/usr/lib/syslinux/mbr/mbr.bin" ]; then
-    echo "Installing MBR..."
+if [ -f "./mbr.bin" ]; then
+    echo "Installing local MBR..."
+    dd if="./mbr.bin" of=/dev/nbd0 bs=440 count=1
+elif [ -f "/usr/lib/syslinux/mbr/mbr.bin" ]; then
+    echo "Installing system MBR..."
     dd if=/usr/lib/syslinux/mbr/mbr.bin of=/dev/nbd0 bs=440 count=1
 elif [ -f "/usr/lib/EXTLINUX/mbr.bin" ]; then
-    echo "Installing MBR..."
+    echo "Installing system MBR..."
     dd if=/usr/lib/EXTLINUX/mbr.bin of=/dev/nbd0 bs=440 count=1
 else
     echo "Warning: Syslinux MBR (mbr.bin) not found."
