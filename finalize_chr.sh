@@ -69,11 +69,11 @@ timeout 10
 label system
 	kernel $KERNEL_FILE
 	initrd /initrd.rgz
-	append load_ramdisk=1 root=/dev/ram0 quiet console=tty0 console=ttyS0,115200
+	append root=/dev/sda2 rootwait console=tty0 console=ttyS0,115200
 label backup
 	kernel /vmlinuz-smp
 	initrd /initrd.rgz
-	append load_ramdisk=1 root=/dev/ram0 quiet console=tty0 console=ttyS0,115200
+	append root=/dev/sda2 rootwait console=tty0 console=ttyS0,115200
 EOF
 cp syslinux.cfg ./mnt_boot/BOOT/
 rm syslinux.cfg

@@ -97,11 +97,11 @@ timeout 10
 label system
     kernel $BEST_KERNEL
     initrd /${INITRD#mnt_boot/}
-    append load_ramdisk=1 root=/dev/ram0 quiet console=tty0 console=ttyS0,115200
+    append root=/dev/sda2 rootwait console=tty0 console=ttyS0,115200
 label backup
     kernel /vmlinuz-smp
     initrd /${INITRD#mnt_boot/}
-    append load_ramdisk=1 root=/dev/ram0 quiet console=tty0 console=ttyS0,115200
+    append root=/dev/sda2 rootwait console=tty0 console=ttyS0,115200
 EOF
 
 echo "Syslinux configured with priority: $BEST_KERNEL"
