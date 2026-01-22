@@ -106,21 +106,14 @@ EOF
 
 echo "Syslinux configured with priority: $BEST_KERNEL"
 
-# Install MBR to the disk (to ensure BIOS boots the partition)
-if [ -f "./MikrotikPatchV6/mbr.bin" ]; then
-    echo "Installing local MBR..."
-    dd if="./MikrotikPatchV6/mbr.bin" of=$NBD_DEV bs=440 count=1
-elif [ -f "./mbr.bin" ]; then
-    echo "Installing local MBR..."
-    dd if="./mbr.bin" of=$NBD_DEV bs=440 count=1
-elif [ -f "/usr/lib/syslinux/mbr/mbr.bin" ]; then
-    echo "Installing system MBR..."
-    dd if=/usr/lib/syslinux/mbr/mbr.bin of=$NBD_DEV bs=440 count=1
-elif [ -f "/usr/lib/EXTLINUX/mbr.bin" ]; then
-    echo "Installing system MBR..."
-    dd if=/usr/lib/EXTLINUX/mbr.bin of=$NBD_DEV bs=440 count=1
+# Update Syslinux map (required because files changed)
+# We do NOT overwrite MBR, assuming original MBR is fine.
+if [ -f "mnt_boot/BOOT/ldlinux.sys" ]; then
+    echo "Updating Syslinux map..."
+    extlinux --update mnt_boot/BOOT
 else
-    echo "Warning: Syslinux MBR (mbr.bin) not found. Image might not boot if MBR is missing or corrupted."
+     echo "Installing Syslinux (ldlinux.sys not found)..."
+     extlinux --install -H 64 -S 32 mnt_boot/BOOT
 fi
 
 # Cleanup
