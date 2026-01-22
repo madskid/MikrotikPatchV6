@@ -91,7 +91,9 @@ if [ ! -f "mnt_boot/vmlinuz-64" ]; then
     BEST_KERNEL="/${KERNEL#mnt_boot/}"
 fi
 
-cat > mnt_boot/BOOT/syslinux.cfg <<EOF
+if [ ! -f "mnt_boot/BOOT/syslinux.cfg" ]; then
+    echo "Creating new syslinux.cfg..."
+    cat > mnt_boot/BOOT/syslinux.cfg <<EOF
 default system
 timeout 10
 label system
@@ -103,8 +105,11 @@ label backup
     initrd /${INITRD#mnt_boot/}
     append root=/dev/sda2 rootwait console=tty0 console=ttyS0,115200
 EOF
+else
+    echo "Keeping existing syslinux.cfg to maintain original boot behavior."
+fi
 
-echo "Syslinux configured with priority: $BEST_KERNEL"
+echo "Syslinux configured."
 
 # Update Syslinux map (required because files changed)
 # We do NOT overwrite MBR, assuming original MBR is fine.

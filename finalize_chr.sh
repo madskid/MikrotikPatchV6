@@ -63,7 +63,9 @@ if [ -f "./mnt_boot/vmlinuz-64" ]; then
     KERNEL_FILE="/vmlinuz-64"
 fi
 
-cat > syslinux.cfg <<EOF
+if [ ! -f "./mnt_boot/BOOT/syslinux.cfg" ]; then
+    echo "Creating new syslinux.cfg..."
+    cat > syslinux.cfg <<EOF
 default system
 timeout 10
 label system
@@ -75,8 +77,11 @@ label backup
 	initrd /initrd.rgz
 	append root=/dev/sda2 rootwait console=tty0 console=ttyS0,115200
 EOF
-cp syslinux.cfg ./mnt_boot/BOOT/
-rm syslinux.cfg
+    cp syslinux.cfg ./mnt_boot/BOOT/
+    rm syslinux.cfg
+else
+    echo "Keeping existing syslinux.cfg."
+fi
 
 # Update Syslinux map (required because files changed)
 echo "Updating Syslinux map..."
