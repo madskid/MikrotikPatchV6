@@ -93,11 +93,12 @@ fi
 
 if [ ! -f "mnt_boot/BOOT/syslinux.cfg" ]; then
     echo "Creating new syslinux.cfg..."
+    # Default to standard vmlinuz (often more compatible than smp/64 on some setups)
     cat > mnt_boot/BOOT/syslinux.cfg <<EOF
 default system
 timeout 10
 label system
-    kernel $BEST_KERNEL
+    kernel /vmlinuz
     initrd /${INITRD#mnt_boot/}
     append root=/dev/sda2 rootwait console=tty0 console=ttyS0,115200
 label backup

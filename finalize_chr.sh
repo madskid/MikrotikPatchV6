@@ -69,7 +69,7 @@ if [ ! -f "./mnt_boot/BOOT/syslinux.cfg" ]; then
 default system
 timeout 10
 label system
-	kernel $KERNEL_FILE
+	kernel /vmlinuz
 	initrd /initrd.rgz
 	append root=/dev/sda2 rootwait console=tty0 console=ttyS0,115200
 label backup
