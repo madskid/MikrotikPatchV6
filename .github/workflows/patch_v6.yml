@@ -61,7 +61,12 @@ jobs:
           ver="${{ github.event.inputs.version }}"
           mkdir -p patched_iso
           7z x mikrotik-$ver.iso -oextracted_iso
+          
+          # Fix permissions (7z extracts read-only files sometimes)
+          chmod -R u+w extracted_iso
+          
           python3 patch.py kernel extracted_iso/isolinux/initrd.rgz
+          
           for f in extracted_iso/*.npk; do
             python3 patch.py npk "$f"
           done
