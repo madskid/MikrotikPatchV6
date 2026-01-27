@@ -59,13 +59,19 @@ def patch_bzimage(data: bytes, key_dict: dict):
 
 
 def patch_block(dev:str,file:str,key_dict):
-    BLOCK_SIZE = 4096
-    #sudo debugfs /dev/nbd0p1 -R 'stats' | grep "Block size" | sed -n '1p' | cut -d ':' -f 2 
+    # Detect Block Size
+    try:
+        stdout, _ = run_shell_command(f"debugfs {dev} -R 'stats' 2> /dev/null | grep 'Block size'")
+        BLOCK_SIZE = int(stdout.split(':')[1].strip())
+        print(f"Detected Block Size: {BLOCK_SIZE}")
+    except:
+        print("Failed to detect block size, defaulting to 4096")
+        BLOCK_SIZE = 4096
 
     #sudo debugfs /dev/nbd0p1 -R 'stat boot/initrd.rgz' 2> /dev/null | sed -n '11p'
     stdout,_ = run_shell_command(f"debugfs {dev} -R 'stat {file}' 2> /dev/null | sed -n '11p' ")
     #(0-11):1592-1603, (IND):1173, (12-15):1604-1607, (16-26):1424-1434
-    blocks_info = stdout.decode().strip().split(',')
+    blocks_info = stdout.strip().split(',')
     print(f'blocks_info : {blocks_info}')
     blocks = []
     ind_block_id = None
@@ -81,10 +87,12 @@ def patch_block(dev:str,file:str,key_dict):
     print(f' blocks : {len(blocks)} ind_block_id : {ind_block_id}')
     
     #sudo debugfs /dev/nbd0p1  -R 'cat boot/initrd.rgz' > data
-    data,stderr = run_shell_command(f"debugfs {dev} -R 'cat {file}' 2> /dev/null")
+    cmd = f"debugfs {dev} -R 'cat {file}' 2> /dev/null"
+    process = subprocess.run(cmd, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    data = process.stdout
     new_data = patch_kernel(data,key_dict)
     print(f'write block {len(blocks)} : [',end="")
-    with open(dev,'wb') as f:
+    with open(dev,'r+b') as f:
         for index,block_id in enumerate(blocks):
             print('#',end="")
             f.seek(block_id*BLOCK_SIZE)
