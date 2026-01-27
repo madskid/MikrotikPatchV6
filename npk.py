@@ -380,19 +380,8 @@ class NovaPackage(Package):
             data = f.read()
         assert int.from_bytes(
             data[:4], 'little') == NovaPackage.NPK_MAGIC, 'Invalid Nova Package Magic'
-        
-        expected_size = int.from_bytes(data[4:8], 'little')
-        actual_size = len(data) - 8
-        
-        if actual_size < expected_size:
-             if expected_size - actual_size <= 2:
-                 print(f"Warning: NPK file {file} is slightly smaller than expected ({actual_size} < {expected_size}). Missing {expected_size - actual_size} bytes. Assuming padding.")
-             else:
-                 raise AssertionError(f'Invalid Nova Package Size: expected {expected_size}, got {actual_size}')
-        elif actual_size > expected_size:
-             print(f"Warning: NPK file {file} is larger than expected ({actual_size} > {expected_size}). Ignoring trailing data.")
-             return NovaPackage(data[8:8+expected_size])
-             
+        assert int.from_bytes(data[4:8], 'little') == len(
+            data) - 8, 'Invalid Nova Package Size'
         return NovaPackage(data[8:])
 
 
