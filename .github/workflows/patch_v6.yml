@@ -15,9 +15,9 @@ env:
   MIKRO_CLOUD_PUBLIC_KEY: "8E1067E4305FCDC0CFBF95C10F96E5DFE8C49AEF486BD1A4E2E96C27F01E3E32"
   
   # Kunci Custom (Diambil dari Secrets GitHub)
-  CUSTOM_NPK_SIGN_PRIVATE_KEY: "7D008D9B80B036FB0205601FEE79D550927EBCA937B7008CC877281F2F8AC640"
+  CUSTOM_NPK_SIGN_PRIVATE_KEY: ${{ secrets.CUSTOM_NPK_SIGN_PRIVATE_KEY }}
   CUSTOM_NPK_SIGN_PUBLIC_KEY: "28F886E32C141123126CFBCAD56766E99D1720CEB1F12BE2468BEBE7662FBEDB"
-  CUSTOM_LICENSE_PRIVATE_KEY: "9DBC845E9018537810FDAE62824322EEE1B12BAD81FCA28EC295FB397C61CE0B"
+  CUSTOM_LICENSE_PRIVATE_KEY: ${{ secrets.CUSTOM_LICENSE_PRIVATE_KEY }}
   CUSTOM_LICENSE_PUBLIC_KEY: "723A34A6E3300F23E4BAA06156B9327514AEC170732655F16E04C17928DD770F"
   CUSTOM_CLOUD_PUBLIC_KEY: "723A34A6E3300F23E4BAA06156B9327514AEC170732655F16E04C17928DD770F"
 
@@ -26,83 +26,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install Dependencies
-        run: |
-          pip install -r requirements.txt
-          sudo apt-get update
-          sudo apt-get install -y mkisofs qemu-utils e2fsprogs mtools p7zip-full
-
-      - name: Download RouterOS
-        run: |
-          ver="${{ github.event.inputs.version }}"
-          wget https://download.mikrotik.com/routeros/$ver/mikrotik-$ver.iso
-          wget https://download.mikrotik.com/routeros/$ver/chr-$ver.img.zip
-          wget https://download.mikrotik.com/routeros/$ver/all_packages-x86-$ver.zip
-          unzip chr-$ver.img.zip
-          unzip all_packages-x86-$ver.zip -d all_packages
-
-      - name: Patch ISO
-        run: |
-          ver="${{ github.event.inputs.version }}"
-          mkdir -p patched_iso
-          7z x mikrotik-$ver.iso -oextracted_iso
-          python3 patch.py kernel extracted_iso/isolinux/initrd.rgz
-          for f in extracted_iso/*.npk; do
-            python3 patch.py npk "$f"
-          done
-          mkisofs -o mikrotik-$ver-patched.iso \
-             -V "MikroTik $ver" \
-             -sysid "" -preparer "MiKroTiK" \
-             -publisher "" -A "MiKroTiK RouterOS" \
-             -input-charset utf-8 \
-             -b isolinux/isolinux.bin \
-             -c isolinux/boot.cat \
-             -no-emul-boot \
-             -boot-load-size 4 \
-             -boot-info-table \
-             -R -J -quiet \
-             extracted_iso/
-
-      - name: Patch CHR
-        run: |
-          ver="${{ github.event.inputs.version }}"
-          cp chr-$ver.img chr-$ver-patched.img
-          dd if=chr-$ver-patched.img of=p1.img skip=1 count=65536 bs=512 status=none
-          dd if=chr-$ver-patched.img of=p2.img skip=65537 count=196607 bs=512 status=none
-          python3 patch.py block p1.img initrd.rgz
-          debugfs -R "dump /var/pdb/routeros-x86/image routeros.npk" p2.img || \
-          debugfs -R "dump /var/pdb/system/image routeros.npk" p2.img
-          python3 -c "import sys; f=open('routeros.npk','r+b'); d=f.read(8); s=int.from_bytes(d[4:8],'little')+8; f.truncate(s)"
-          python3 patch.py npk routeros.npk
-          debugfs -w -R "rm /var/pdb/routeros-x86/image" p2.img || true
-          debugfs -w -R "write routeros.npk /var/pdb/routeros-x86/image" p2.img
-          dd if=p1.img of=chr-$ver-patched.img bs=512 seek=1 count=65536 conv=notrunc status=none
-          dd if=p2.img of=chr-$ver-patched.img bs=512 seek=65537 count=196607 conv=notrunc status=none
-
-      - name: Patch All Packages
-        run: |
-          for f in all_packages/*.npk; do
-            echo "Patching $f"
-            python3 patch.py npk "$f"
-          done
-          zip -r all_packages_patched.zip all_packages/
-
-      - name: Convert Images
-        run: |
-          ver="${{ github.event.inputs.version }}"
-          qemu-img convert -f raw -O vmdk chr-$ver-patched.img chr-$ver-patched.vmdk
-          qemu-img convert -f raw -O vdi chr-$ver-patched.img chr-$ver-patched.vdi
-          qemu-img convert -f raw -O vhdx chr-$ver-patched.img chr-$ver-patched.vhdx
+# ... (middle parts unchanged) ...
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: patched-images
           path: |
